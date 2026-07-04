@@ -1,6 +1,7 @@
 package com.example.myspringaiunittest.controller;
 
 import com.example.myspringaiunittest.advisor.PrettyLoggerAdvisor;
+import com.example.myspringaiunittest.advisor.TokenUsageAuditAdvisor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -19,7 +20,7 @@ public class ChatController {
     Resource hrPolicyTemplate;
 
     public ChatController(ChatClient.Builder chatClientBuilder) {
-        this.chatClient = chatClientBuilder.defaultAdvisors(new PrettyLoggerAdvisor())
+        this.chatClient = chatClientBuilder.defaultAdvisors(new PrettyLoggerAdvisor(), new TokenUsageAuditAdvisor())
                 .build();
     }
 

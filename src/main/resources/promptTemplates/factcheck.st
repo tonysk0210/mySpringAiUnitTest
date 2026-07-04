@@ -7,8 +7,8 @@
 4. 若未提供文件，請完全依賴您自身的知識進行判斷。
 5. 僅回答「yes」或「no」，請勿提供解釋。
 
-文件：
+document：
 {document}
 
-陳述：
+claim：
 {claim}

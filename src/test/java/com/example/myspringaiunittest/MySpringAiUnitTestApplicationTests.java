@@ -1,6 +1,7 @@
 package com.example.myspringaiunittest;
 
 import com.example.myspringaiunittest.advisor.PrettyLoggerAdvisor;
+import com.example.myspringaiunittest.advisor.TokenUsageAuditAdvisor;
 import com.example.myspringaiunittest.controller.ChatController;
 import org.junit.jupiter.api.*;
 import org.springframework.ai.chat.client.ChatClient;
@@ -15,8 +16,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.Resource;
 import org.springframework.test.context.TestPropertySource;
 
+import org.springframework.ai.document.Document;
+
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.ai.openai.api-key=${OPENAI_API_KEY:test-key}",
         "logging.level.org.springframework.ai=DEBUG"
 })
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class) // 按照 @Order 注解的數字順序執行測試方法
 class MySpringAiUnitTestApplicationTests {
 
     //  Spring Test framework 特別支援測試類別注入。
@@ -58,7 +63,7 @@ class MySpringAiUnitTestApplicationTests {
     void setup() throws IOException {
         // 1. 建立 ChatClient
         ChatClient.Builder chatClientBuilder =
-                ChatClient.builder(chatModel).defaultAdvisors(new PrettyLoggerAdvisor());
+                ChatClient.builder(chatModel).defaultAdvisors(new PrettyLoggerAdvisor(), new TokenUsageAuditAdvisor());
         this.chatClient = chatClientBuilder.build();
 
         // 2. 建立 RelevancyEvaluator 接收 chatClientBuilder 主要為了測試 RelevancyEvaluator
@@ -77,7 +82,8 @@ class MySpringAiUnitTestApplicationTests {
     /**
      * RelevancyEvaluator- 測試 ChatController 的回應是否與問題相關，以及相關性分數是否超過門檻。
      */
-    //@Test
+    @Test
+    @Order(1)
     @DisplayName("應回傳與基本地理問題相關的回應")
     @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void evaluateChatControllerResponseRelevancy() {
@@ -121,6 +127,7 @@ class MySpringAiUnitTestApplicationTests {
      * FactCheckingEvaluator- 測試 ChatController 的回應是否為事實正確。
      */
     @Test
+    @Order(2)
     @DisplayName("應回傳與重力相關問題的正確事實回應")
     @Timeout(value = 30)
     void evaluateFactAccuracyForGravityQuestion() {
@@ -149,6 +156,44 @@ class MySpringAiUnitTestApplicationTests {
                                 上下文：%s
                                 ========================================
                                 """, question, aiResponse, "")
+                        .isTrue());
+    }
+
+    @Test
+    @Order(3)
+    @DisplayName("應根據人資政策文件（RAG 情境）正確評估事實回應")
+    @Timeout(value = 30)
+    public void evaluateHrPolicyAnswerWithRagContext() throws IOException {
+        // Given
+        String question = "員工每年有幾天有薪假？";
+
+        // When
+        // 1. 取得 AI 回應
+        String aiResponse = chatController.promptStuffing(question);
+        // 2. 取得人資政策文件內容當作上下文
+        String retrievedContext = hrPolicyTemplate.getContentAsString(Charset.defaultCharset());
+        // 3. 建立 EvaluationRequest，將 retrievedContext 作為參考文件傳給 evaluator，之後會填入 factcheck.st 的 {document}
+        EvaluationRequest evaluationRequest = new EvaluationRequest(
+                question, List.of(new Document(retrievedContext)),
+                aiResponse
+        );
+        // 4. 评估回應是否為事實正確 - 使用 FactCheckingEvaluator
+        EvaluationResponse evaluationResponse = factCheckingEvaluator.evaluate(evaluationRequest);
+
+        // 5. 驗證 - 回應是否符合要求 - 兩個斷言全部都會執行，不管前面有沒有失敗。
+        Assertions.assertAll(
+                // 斷言 1：回應不能是空白
+                () -> assertThat(aiResponse).isNotBlank(),
+                // 斷言 2：回應必須是事實正確
+                () -> assertThat(evaluationResponse.isPass())
+                        .withFailMessage("""
+                                ========================================
+                                此回答被認為事實不正確。
+                                問題：%s
+                                回應：%s
+                                上下文：%s
+                                ========================================
+                                """, question, aiResponse, retrievedContext)
                         .isTrue());
     }
 
